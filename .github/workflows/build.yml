@@ -53,7 +53,9 @@ jobs:
         run: |
           $out = Join-Path $env:RUNNER_TEMP "selftest.json"
           $p = Start-Process -FilePath "dist/WinCam/WinCam.exe" -ArgumentList "--selftest", "`"$out`"" -Wait -PassThru
-          if (Test-Path $out) { Get-Content $out } else { throw "self-test produced no report" }
+          if (-not (Test-Path $out)) { throw "self-test produced no report" }
+          Get-Content $out
+          "### Self-test`n``````json`n$(Get-Content $out -Raw)`n``````" >> $env:GITHUB_STEP_SUMMARY
           if ($p.ExitCode -ne 0) { throw "self-test failed with exit code $($p.ExitCode)" }
 
       - name: Version
@@ -74,7 +76,7 @@ jobs:
           choco install innosetup -y --no-progress | Out-Null
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { $iscc = (Get-Command iscc).Source }
-          & $iscc "/DAppVersion=${{ steps.ver.outputs.version }}" installer/wincam.iss
+          & $iscc /Q "/DAppVersion=${{ steps.ver.outputs.version }}" installer/wincam.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 
       - uses: actions/upload-artifact@v4
