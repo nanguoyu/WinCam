@@ -149,6 +149,24 @@ def selftest(out_path: str) -> int:
         "microphones": [d.description() for d in QMediaDevices.audioInputs()],
     }
     report["ok"] = QMediaFormat.FileFormat.MPEG4 in containers
+
+    # Real recordings (synthetic picture + sound) through the same settings the app uses for each preset.
+    import tempfile
+
+    from PySide6.QtMultimedia import QMediaRecorder
+
+    from wincam.rectest import record_synthetic
+
+    cases = [(p.key, capture.RecordOptions(bitrate_kbps=p.bitrate_kbps), p.height) for p in capture.PRESETS]
+    cases.append(("custom-auto", capture.RecordOptions(quality=QMediaRecorder.Quality.HighQuality), 480))
+    recordings = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        for name, opts, height in cases:
+            res = record_synthetic(str(Path(tmp) / f"{name}.mp4"), opts, width=height * 16 // 9, height=height,
+                                   seconds=2)
+            recordings[name] = {"ok": res.ok, "size": res.size, "errors": res.errors}
+    report["recordings"] = recordings
+    report["ok"] = report["ok"] and all(r["ok"] for r in recordings.values())
     Path(out_path).write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     return 0 if report["ok"] else 1
 

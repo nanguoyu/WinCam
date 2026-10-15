@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 from PySide6.QtCore import QObject, QUrl, Signal
@@ -181,6 +182,35 @@ class RecordOptions:
     bitrate_kbps: int = 0
 
 
+AUDIO_BITRATE = 128_000
+
+
+def configure_recorder(recorder: QMediaRecorder, opts: RecordOptions, resolution=None, fps=None) -> None:
+    """Apply RecordOptions to a QMediaRecorder (shared by the app and the recording self-test)."""
+    fmt = QMediaFormat(opts.container)
+    if opts.video_codec != QMediaFormat.VideoCodec.Unspecified \
+            and opts.video_codec in supported_video_codecs(opts.container):
+        fmt.setVideoCodec(opts.video_codec)
+    if opts.audio_codec != QMediaFormat.AudioCodec.Unspecified \
+            and opts.audio_codec in supported_audio_codecs(opts.container):
+        fmt.setAudioCodec(opts.audio_codec)
+    recorder.setMediaFormat(fmt)
+    recorder.setQuality(opts.quality)
+    # Always give the audio encoder an explicit bitrate: in bitrate modes Qt passes audioBitRate() straight to
+    # FFmpeg, and the default (-1) makes it fail with "Cannot open any audio codec".
+    recorder.setAudioBitRate(AUDIO_BITRATE)
+    if opts.bitrate_kbps > 0:
+        recorder.setEncodingMode(QMediaRecorder.EncodingMode.AverageBitRateEncoding)
+        recorder.setVideoBitRate(opts.bitrate_kbps * 1000)
+    else:
+        recorder.setEncodingMode(QMediaRecorder.EncodingMode.ConstantQualityEncoding)
+        recorder.setVideoBitRate(-1)
+    if resolution is not None:
+        recorder.setVideoResolution(resolution)
+    if fps:
+        recorder.setVideoFrameRate(fps)
+
+
 class CaptureController(QObject):
     errorOccurred = Signal(str, str)          # kind ("camera"/"recorder"/"snapshot"), message
     recorderStateChanged = Signal(QMediaRecorder.RecorderState)
@@ -264,26 +294,12 @@ class CaptureController(QObject):
         return self.recorder.recorderState() == QMediaRecorder.RecorderState.PausedState
 
     def start_recording(self, path: str, opts: RecordOptions) -> None:
-        fmt = QMediaFormat(opts.container)
-        if opts.video_codec != QMediaFormat.VideoCodec.Unspecified \
-                and opts.video_codec in supported_video_codecs(opts.container):
-            fmt.setVideoCodec(opts.video_codec)
-        if opts.audio_codec != QMediaFormat.AudioCodec.Unspecified \
-                and opts.audio_codec in supported_audio_codecs(opts.container):
-            fmt.setAudioCodec(opts.audio_codec)
-        self.recorder.setMediaFormat(fmt)
-        self.recorder.setQuality(opts.quality)
-        if opts.bitrate_kbps > 0:
-            self.recorder.setEncodingMode(QMediaRecorder.EncodingMode.AverageBitRateEncoding)
-            self.recorder.setVideoBitRate(opts.bitrate_kbps * 1000)
-        else:
-            self.recorder.setEncodingMode(QMediaRecorder.EncodingMode.ConstantQualityEncoding)
-            self.recorder.setVideoBitRate(-1)
+        resolution, fps = None, None
         if self.camera is not None:
             cf = self.camera.cameraFormat()
             if not cf.isNull():
-                self.recorder.setVideoResolution(cf.resolution())
-                self.recorder.setVideoFrameRate(cf.maxFrameRate())
+                resolution, fps = cf.resolution(), cf.maxFrameRate()
+        configure_recorder(self.recorder, opts, resolution, fps)
         self._recording_path = path
         self.recorder.setOutputLocation(QUrl.fromLocalFile(path))
         self.recorder.record()
@@ -307,6 +323,12 @@ class CaptureController(QObject):
             self._recording_path = ""
             if self.recorder.error() == QMediaRecorder.Error.NoError:
                 self.recordingSaved.emit(path)
+            else:
+                try:  # don't leave an empty/unplayable file behind after a failed start
+                    if os.path.getsize(path) == 0:
+                        os.remove(path)
+                except OSError:
+                    pass
 
     # --- snapshot ---------------------------------------------------------
     def capture_snapshot(self, path: str) -> None:
