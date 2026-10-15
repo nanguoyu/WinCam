@@ -58,7 +58,7 @@ python -m pytest          # 测试
 pyinstaller wincam.spec   # 在 Windows 上打包到 dist/WinCam/
 ```
 
-技术栈：Python + PySide6（Qt 6 Multimedia，Windows 上使用 FFmpeg / Media Foundation 后端），PyInstaller 打包，Inno Setup 制作安装程序。每次推送代码，GitHub Actions 会在 Windows 机器上自动测试、打包；推送 `v*` 标签（如 `v1.0.0`）会自动发布 Release。
+技术栈：Python + PySide6（Qt 6 Multimedia，Windows 上使用 FFmpeg / Media Foundation 后端），PyInstaller 打包，Inno Setup 制作安装程序。每次推送代码，GitHub Actions 会在 Windows 机器上自动测试、打包；推送 `v*` 标签（如 `v1.0.0`），或在 Actions 页面手动运行 “Build Windows” 并勾选 “Publish a GitHub release”，会自动发布 Release（版本号取自 `wincam/__init__.py`）。
 
 ### 项目结构
 
