@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QKeySequence, QShortcut
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtMultimedia import QMediaDevices, QMediaFormat, QMediaRecorder
 from PySide6.QtWidgets import (
     QApplication,
@@ -28,6 +29,7 @@ from wincam.config import Config
 from wincam.i18n import tr
 from wincam.icons import app_icon, icon
 from wincam.settings_dialog import TAB_GENERAL, TAB_VIDEO, SettingsDialog, describe_choice, preset_label, quality_enum
+from wincam.updater import ReleaseInfo, UpdateChecker
 from wincam.utils import (
     build_output_path,
     format_bitrate,
@@ -92,6 +94,14 @@ class MainWindow(QMainWindow):
         self._refresh_cameras()
         self._update_buttons()
         self._status(tr("ready"))
+
+        self.updater = UpdateChecker(self)
+        self.updater.updateAvailable.connect(self._on_update_available)
+        self.updater.upToDate.connect(self._on_up_to_date)
+        self.updater.failed.connect(self._on_update_failed)
+        self._manual_update_check = False
+        self._pending_update: ReleaseInfo | None = None
+        QTimer.singleShot(4000, self._auto_check_updates)
 
         geo = self.config.raw().value("window/geometry")
         if geo is not None:
@@ -517,6 +527,9 @@ class MainWindow(QMainWindow):
             self.time_label.setText("00:00:00")
             self.setWindowTitle(__app_name__)
             self._hide_toast("background")
+            if self._pending_update is not None:
+                # Don't cover the "saved" card; offer the update a bit later.
+                QTimer.singleShot(9000, self._show_pending_update)
         self.time_label.style().unpolish(self.time_label)
         self.time_label.style().polish(self.time_label)
         self._update_buttons()
@@ -593,6 +606,7 @@ class MainWindow(QMainWindow):
         self._tray_pause = menu.addAction(tr("pause") + "\tF10", self._toggle_pause)
         menu.addAction(tr("snapshot") + "\tF8", self._snapshot)
         menu.addAction(tr("open_folder"), self._open_folder)
+        menu.addAction(tr("check_update"), self._manual_check_updates)
         menu.addSeparator()
         menu.addAction(tr("exit"), self.close)
         tray.setContextMenu(menu)
@@ -615,9 +629,9 @@ class MainWindow(QMainWindow):
             self.tray.setToolTip(__app_name__)
 
     def _notify(self, kind: str, title: str, body: str, actions=None, persistent: bool = False,
-                timeout_ms: int = 5000) -> None:
+                timeout_ms: int = 5000, force: bool = False) -> None:
         """Bottom-right notification card (our own window, so Windows notification settings can't hide it)."""
-        if not self.config.get("app/tray_notifications"):
+        if not force and not self.config.get("app/tray_notifications"):
             return
         if self.toast is None:
             self.toast = Toast(app_icon())
@@ -631,6 +645,8 @@ class MainWindow(QMainWindow):
     def _on_toast_clicked(self) -> None:
         if self.toast is not None and self.toast.kind == "saved":
             self._open_folder()
+        elif self.toast is not None and self.toast.kind == "update" and self._pending_update is not None:
+            self._download_update(self._pending_update)
         else:
             self._restore_from_tray()
 
@@ -777,8 +793,92 @@ class MainWindow(QMainWindow):
             self.showFullScreen()
 
     def _about(self) -> None:
-        QMessageBox.about(self, tr("about"),
-                          tr("about_text").format(ver=__version__) + "<br><br>" + tr("shortcuts"))
+        box = QMessageBox(self)
+        box.setWindowTitle(tr("about"))
+        box.setIconPixmap(app_icon().pixmap(QSize(64, 64)))
+        box.setText(tr("about_text").format(ver=__version__) + "<br><br>" + tr("shortcuts"))
+        check = box.addButton(tr("check_update"), QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Ok)
+        box.exec()
+        if box.clickedButton() is check:
+            self._manual_check_updates()
+
+    # ======================================================================
+    # Update check (GitHub Releases)
+    # ======================================================================
+    def _auto_check_updates(self) -> None:
+        if not self.config.get("update/auto_check"):
+            return
+        today = date.today().isoformat()
+        if self.config.get("update/last_check") == today:
+            return
+        self.config.set("update/last_check", today)
+        self._manual_update_check = False
+        self.updater.check()
+
+    def _manual_check_updates(self) -> None:
+        self._manual_update_check = True
+        self._status(tr("checking_update"))
+        self.updater.check()
+
+    def _on_update_available(self, info: ReleaseInfo) -> None:
+        manual, self._manual_update_check = self._manual_update_check, False
+        self._pending_update = info
+        if manual:
+            self._status(tr("update_title", info.version), 8000)
+            box = QMessageBox(self)
+            box.setWindowTitle(tr("check_update"))
+            box.setIconPixmap(app_icon().pixmap(QSize(64, 64)))
+            box.setText(f"<b>{tr('update_title', info.version)}</b><br><br>{tr('update_body', __version__)}")
+            notes = info.notes.strip()
+            if notes:
+                box.setInformativeText(tr("update_notes") + "\n" + (notes[:600] + ("…" if len(notes) > 600 else "")))
+            download = box.addButton(tr("update_download"), QMessageBox.ButtonRole.AcceptRole)
+            skip = box.addButton(tr("update_skip"), QMessageBox.ButtonRole.DestructiveRole)
+            box.addButton(tr("update_later"), QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(download)
+            box.exec()
+            if box.clickedButton() is download:
+                self._download_update(info)
+            elif box.clickedButton() is skip:
+                self._skip_update(info)
+            return
+        if info.version == self.config.get("update/skipped"):
+            self._pending_update = None
+            return
+        if self.controller.is_recording():
+            return  # shown when the recording stops
+        self._show_pending_update()
+
+    def _show_pending_update(self) -> None:
+        info = self._pending_update
+        if info is None or self.controller.is_recording():
+            return
+        self._notify("update", tr("update_title", info.version), tr("update_body", __version__), force=True,
+                     persistent=True,
+                     actions=[(tr("update_download"), lambda: self._download_update(info)),
+                              (tr("update_later"), lambda: None),
+                              (tr("update_skip"), lambda: self._skip_update(info))])
+
+    def _download_update(self, info: ReleaseInfo) -> None:
+        QDesktopServices.openUrl(QUrl(info.download_url or info.page_url))
+        self._pending_update = None
+
+    def _skip_update(self, info: ReleaseInfo) -> None:
+        self.config.set("update/skipped", info.version)
+        self._pending_update = None
+
+    def _on_up_to_date(self, latest: str) -> None:
+        if self._manual_update_check:
+            self._manual_update_check = False
+            self._status(tr("update_latest", __version__), 6000)
+            QMessageBox.information(self, tr("check_update"), tr("update_latest", __version__))
+
+    def _on_update_failed(self, error: str) -> None:
+        if self._manual_update_check:  # automatic checks fail silently (offline, firewall, …)
+            self._manual_update_check = False
+            self._status(tr("ready"))
+            QMessageBox.warning(self, tr("check_update"), tr("update_failed", error))
 
     def closeEvent(self, event) -> None:
         if self._countdown_left > 0:

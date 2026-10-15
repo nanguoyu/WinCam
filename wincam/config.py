@@ -51,6 +51,9 @@ DEFAULTS: dict[str, object] = {
     "audio/codec": "Unspecified",
     "audio/volume": 100,
     "snapshot/format": "jpg",
+    "update/auto_check": True,
+    "update/last_check": "",   # ISO date of the last automatic check (at most one per day)
+    "update/skipped": "",      # version the user chose to skip
 }
 
 

@@ -127,6 +127,8 @@ class SettingsDialog(QDialog):
         form.addRow("", self.minimize_to_tray)
         self.always_on_top = QCheckBox(tr("always_on_top"))
         form.addRow("", self.always_on_top)
+        self.auto_update = QCheckBox(tr("auto_update"))
+        form.addRow("", self.auto_update)
 
         self.language = QComboBox()
         for code, name in LANGUAGES.items():
@@ -292,6 +294,7 @@ class SettingsDialog(QDialog):
         self.tray_notify.setChecked(get("app/tray_notifications"))
         self.minimize_to_tray.setChecked(get("app/minimize_to_tray"))
         self.always_on_top.setChecked(get("app/always_on_top"))
+        self.auto_update.setChecked(get("update/auto_check"))
         self._select(self.preset, get("video/preset"))
         fkey = get("video/format")
         if fkey and self.custom_format.findData(fkey) < 0:  # saved for a camera that is not plugged in now
@@ -333,6 +336,7 @@ class SettingsDialog(QDialog):
         c.set("app/tray_notifications", self.tray_notify.isChecked())
         c.set("app/minimize_to_tray", self.minimize_to_tray.isChecked())
         c.set("app/always_on_top", self.always_on_top.isChecked())
+        c.set("update/auto_check", self.auto_update.isChecked())
         c.set("app/language", self.language.currentData())
         c.set("video/preset", self.preset.currentData())
         c.set("video/format", self.custom_format.currentData() or "")

@@ -73,7 +73,7 @@ QSlider::groove:horizontal { height: 4px; background: #3c3e44; border-radius: 2p
 QSlider::sub-page:horizontal { background: #5b8def; border-radius: 2px; }
 QSlider::handle:horizontal { background: #e8eaed; width: 14px; margin: -6px 0; border-radius: 7px; }
 QToolTip { background: #2b2c31; color: #e8eaed; border: 1px solid #44474d; padding: 4px 6px; }
-QMessageBox QLabel { min-width: 280px; }
+QMessageBox QLabel#qt_msgbox_label { min-width: 280px; }
 QLabel#toastTitle { font-weight: bold; font-size: 10.5pt; color: #ffffff; }
 QLabel#toastBody { color: #c4c7cc; }
 QToolButton#toastClose { color: #9aa0a6; padding: 2px 6px; }
@@ -167,6 +167,24 @@ def selftest(out_path: str) -> int:
             recordings[name] = {"ok": res.ok, "size": res.size, "errors": res.errors}
     report["recordings"] = recordings
     report["ok"] = report["ok"] and all(r["ok"] for r in recordings.values())
+
+    # Real update check against GitHub: proves HTTPS/TLS works in the packaged app.
+    from PySide6.QtCore import QEventLoop, QTimer
+
+    from wincam.updater import UpdateChecker
+
+    checker = UpdateChecker()
+    loop = QEventLoop()
+    update: dict = {}
+    checker.updateAvailable.connect(lambda i: (update.update(result="update", latest=i.version), loop.quit()))
+    checker.upToDate.connect(lambda v: (update.update(result="latest", latest=v), loop.quit()))
+    checker.failed.connect(lambda e: (update.update(result="failed", error=e), loop.quit()))
+    QTimer.singleShot(30000, loop.quit)
+    checker.check()
+    loop.exec()
+    report["update_check"] = update or {"result": "timeout"}
+    if "--require-network" in sys.argv:
+        report["ok"] = report["ok"] and update.get("result") in ("update", "latest")
     Path(out_path).write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     return 0 if report["ok"] else 1
 

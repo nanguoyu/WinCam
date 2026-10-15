@@ -57,7 +57,7 @@ jobs:
         shell: pwsh
         run: |
           $out = Join-Path $env:RUNNER_TEMP "selftest.json"
-          $p = Start-Process -FilePath "dist/WinCam/WinCam.exe" -ArgumentList "--selftest", "`"$out`"" -Wait -PassThru
+          $p = Start-Process -FilePath "dist/WinCam/WinCam.exe" -ArgumentList "--selftest", "`"$out`"", "--require-network" -Wait -PassThru
           if (-not (Test-Path $out)) { throw "self-test produced no report" }
           Get-Content $out
           "### Self-test`n``````json`n$(Get-Content $out -Raw)`n``````" >> $env:GITHUB_STEP_SUMMARY
