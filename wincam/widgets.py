@@ -169,6 +169,9 @@ class RecordButton(QAbstractButton):
         self._hover = False
         self._pending = False  # countdown in progress
 
+    def nextCheckState(self) -> None:
+        """Clicking must not toggle the look; the checked state follows the recorder state only."""
+
     def set_pending(self, on: bool) -> None:
         self._pending = on
         self.update()

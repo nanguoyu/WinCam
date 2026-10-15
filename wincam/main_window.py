@@ -547,6 +547,7 @@ class MainWindow(QMainWindow):
             self._status(tr("error") + ": " + message)
             self._update_buttons()
         elif kind == "recorder":
+            self.record_btn.setChecked(self.controller.is_recording())
             self._status(tr("error") + ": " + message)
             QMessageBox.warning(self, tr("error"), tr("recorder_error", message))
         else:
