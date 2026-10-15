@@ -36,7 +36,7 @@ from wincam.utils import (
     free_space,
     open_in_explorer,
 )
-from wincam.widgets import PreviewView, RecordButton
+from wincam.widgets import PreviewView, RecordButton, Toast
 
 MIN_FREE_START = 300 * 1024 * 1024   # refuse to start below this
 MIN_FREE_RECORDING = 150 * 1024 * 1024  # auto-stop below this
@@ -58,7 +58,7 @@ class MainWindow(QMainWindow):
         self._updating_devices = False
         self._settings_open = False
         self._quitting = False
-        self._last_notice = ""
+        self.toast: Toast | None = None
 
         self._build_ui()
         self._build_shortcuts()
@@ -516,6 +516,7 @@ class MainWindow(QMainWindow):
             self.time_label.setProperty("recording", False)
             self.time_label.setText("00:00:00")
             self.setWindowTitle(__app_name__)
+            self._hide_toast("background")
         self.time_label.style().unpolish(self.time_label)
         self.time_label.style().polish(self.time_label)
         self._update_buttons()
@@ -533,6 +534,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{status} - {__app_name__}")
         if self.tray is not None:
             self.tray.setToolTip(f"{__app_name__} - {status}")
+        if self.toast is not None and self.toast.isVisible() and self.toast.kind == "background":
+            self.toast.set_body(self._background_rec_body())
 
     def _on_duration(self, ms: int) -> None:
         if not self.controller.is_recording():
@@ -561,7 +564,8 @@ class MainWindow(QMainWindow):
             size = format_bytes(Path(path).stat().st_size)
         except OSError:
             size = ""
-        self._notify("saved", tr("tray_saved_title"), tr("tray_saved_body", Path(path).name, size))
+        self._notify("saved", tr("tray_saved_title"), tr("tray_saved_body", Path(path).name, size),
+                     actions=[(tr("open_folder"), self._open_folder)], timeout_ms=8000)
         if self.config.get("app/reveal_after_recording") and not self._close_after_stop:
             open_in_explorer(path, select=True)
 
@@ -594,7 +598,6 @@ class MainWindow(QMainWindow):
         tray.setContextMenu(menu)
         self._tray_menu = menu
         tray.activated.connect(self._on_tray_activated)
-        tray.messageClicked.connect(self._on_tray_message_clicked)
         tray.show()
         self._tray_pause.setEnabled(False)
         return tray
@@ -611,11 +614,29 @@ class MainWindow(QMainWindow):
         if not recording:
             self.tray.setToolTip(__app_name__)
 
-    def _notify(self, kind: str, title: str, body: str) -> None:
-        if self.tray is None or not self.config.get("app/tray_notifications"):
+    def _notify(self, kind: str, title: str, body: str, actions=None, persistent: bool = False,
+                timeout_ms: int = 5000) -> None:
+        """Bottom-right notification card (our own window, so Windows notification settings can't hide it)."""
+        if not self.config.get("app/tray_notifications"):
             return
-        self._last_notice = kind
-        self.tray.showMessage(title, body, app_icon(), 4000)
+        if self.toast is None:
+            self.toast = Toast(app_icon())
+            self.toast.clicked.connect(self._on_toast_clicked)
+        self.toast.show_message(kind, title, body, timeout_ms, actions, persistent)
+
+    def _hide_toast(self, kind: str | None = None) -> None:
+        if self.toast is not None and self.toast.isVisible() and (kind is None or self.toast.kind == kind):
+            self.toast.hide()
+
+    def _on_toast_clicked(self) -> None:
+        if self.toast is not None and self.toast.kind == "saved":
+            self._open_folder()
+        else:
+            self._restore_from_tray()
+
+    def _background_rec_body(self) -> str:
+        return tr("toast_rec_body", format_duration(self.controller.recorder.duration()),
+                  tr("paused") if self.controller.is_paused() else tr("recording"))
 
     def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
@@ -625,12 +646,6 @@ class MainWindow(QMainWindow):
                 self.activateWindow()
                 self.raise_()
 
-    def _on_tray_message_clicked(self) -> None:
-        if self._last_notice == "saved":
-            self._open_folder()
-        else:
-            self._restore_from_tray()
-
     def _restore_from_tray(self) -> None:
         self.show()
         self.setWindowState((self.windowState() & ~Qt.WindowState.WindowMinimized) | Qt.WindowState.WindowActive)
@@ -639,17 +654,21 @@ class MainWindow(QMainWindow):
 
     def changeEvent(self, event) -> None:
         super().changeEvent(event)
-        if event.type() != QEvent.Type.WindowStateChange or not self.isMinimized() or self._quitting:
+        if event.type() != QEvent.Type.WindowStateChange or self._quitting:
             return
+        if not self.isMinimized():
+            self._hide_toast("background")
+            return
+        hint = tr("tray_restore_hint") if self.tray is not None else tr("taskbar_restore_hint")
         if self.controller.is_recording():
-            body = tr("tray_min_recording", format_duration(self.controller.recorder.duration()))
-        elif self.controller.camera_active():
-            body = tr("tray_min_idle")
+            # Stays on screen with a live timer for as long as we record in the background.
+            self._notify("background", tr("toast_rec_title"), self._background_rec_body(), persistent=True,
+                         actions=[(tr("tray_show"), self._restore_from_tray),
+                                  (tr("stop"), self.controller.stop_recording)])
         else:
-            body = tr("tray_min_plain")
-        to_tray = self.tray is not None and self.config.get("app/minimize_to_tray")
-        self._notify("minimized", tr("tray_min_title"), body + "\n" + tr("tray_restore_hint"))
-        if to_tray:
+            body = tr("tray_min_idle") if self.controller.camera_active() else tr("tray_min_plain")
+            self._notify("minimized", tr("tray_min_title"), body + "\n" + hint)
+        if self.tray is not None and self.config.get("app/minimize_to_tray"):
             QTimer.singleShot(0, self.hide)
 
     # ======================================================================
@@ -785,6 +804,10 @@ class MainWindow(QMainWindow):
         self.controller.stop_camera()
         if self.tray is not None:
             self.tray.hide()
+        if self.toast is not None:
+            self.toast.close()
+            self.toast.deleteLater()
+            self.toast = None
         super().closeEvent(event)
         QApplication.quit()
 

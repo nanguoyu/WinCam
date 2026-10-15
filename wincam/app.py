@@ -74,6 +74,10 @@ QSlider::sub-page:horizontal { background: #5b8def; border-radius: 2px; }
 QSlider::handle:horizontal { background: #e8eaed; width: 14px; margin: -6px 0; border-radius: 7px; }
 QToolTip { background: #2b2c31; color: #e8eaed; border: 1px solid #44474d; padding: 4px 6px; }
 QMessageBox QLabel { min-width: 280px; }
+QLabel#toastTitle { font-weight: bold; font-size: 10.5pt; color: #ffffff; }
+QLabel#toastBody { color: #c4c7cc; }
+QToolButton#toastClose { color: #9aa0a6; padding: 2px 6px; }
+QPushButton#toastButton { padding: 4px 12px; }
 """
 
 

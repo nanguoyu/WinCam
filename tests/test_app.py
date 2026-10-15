@@ -124,3 +124,20 @@ def test_main_window_uses_preset_bitrate(config, tmp_path, qapp):
     assert win._record_options().bitrate_kbps == 8000
     win.close()
     shiboken6.delete(win)
+
+
+def test_minimize_shows_bottom_right_notice(config, tmp_path, qapp):
+    from wincam.main_window import MainWindow
+
+    config.set("app/save_dir", str(tmp_path))
+    win = MainWindow(config)
+    win.show()
+    qapp.processEvents()
+    win.showMinimized()
+    qapp.processEvents()
+    assert win.toast is not None and win.toast.isVisible()
+    assert win.toast.kind == "minimized"
+    win.showNormal()
+    qapp.processEvents()
+    win.close()
+    shiboken6.delete(win)
