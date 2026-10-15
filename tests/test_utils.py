@@ -35,3 +35,11 @@ def test_format_bytes():
 
 def test_free_space_walks_up(tmp_path):
     assert free_space(tmp_path / "does" / "not" / "exist") is not None
+
+
+def test_format_bitrate():
+    from wincam.utils import format_bitrate
+
+    assert format_bitrate(1500) == "1.5 Mbps"
+    assert format_bitrate(8000) == "8 Mbps"
+    assert format_bitrate(800) == "800 kbps"

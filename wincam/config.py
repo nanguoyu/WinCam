@@ -34,10 +34,14 @@ DEFAULTS: dict[str, object] = {
     "app/language": None,  # computed lazily -> default_language()
     "app/countdown": 0,
     "app/max_minutes": 0,
-    "app/open_folder_after": False,
+    # New key (was app/open_folder_after, default off) so existing installs also get the new default.
+    "app/reveal_after_recording": True,
     "app/always_on_top": False,
+    "app/tray_notifications": True,
+    "app/minimize_to_tray": False,
     "video/camera_id": "",
-    "video/format": "",
+    "video/preset": "480p",
+    "video/format": "",  # only used by the "custom" preset
     "video/container": "MPEG4",
     "video/codec": "Unspecified",
     "video/quality": "HighQuality",

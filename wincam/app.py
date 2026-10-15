@@ -6,12 +6,13 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont, QIcon, QPalette
+from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import QApplication
 
 from wincam import __app_name__, __version__
 from wincam.config import Config
 from wincam.i18n import set_language
+from wincam.icons import app_icon
 
 STYLE = """
 QMainWindow, QDialog { background: #1e1f22; }
@@ -76,11 +77,6 @@ QMessageBox QLabel { min-width: 280px; }
 """
 
 
-def resource_path(name: str) -> Path:
-    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
-    return base / "wincam" / "resources" / name
-
-
 def _dark_palette() -> QPalette:
     pal = QPalette()
     roles = {
@@ -126,10 +122,8 @@ def create_app(argv: list[str] | None = None) -> QApplication:
     if sys.platform == "win32":
         app.setFont(QFont("Microsoft YaHei UI", 9))
     app.setStyleSheet(STYLE)
-    ico = resource_path("wincam.ico")
-    png = resource_path("wincam.png")
-    if ico.exists() or png.exists():
-        app.setWindowIcon(QIcon(str(ico if ico.exists() else png)))
+    # Painted in code (multi-size), so the taskbar / title bar icon never depends on finding a file at runtime.
+    app.setWindowIcon(app_icon())
     return app
 
 
@@ -166,6 +160,8 @@ def main(argv: list[str] | None = None) -> int:
 
     from wincam.main_window import MainWindow  # import after the language is set
 
+    # The window may be hidden in the tray; quit explicitly from MainWindow.closeEvent instead.
+    app.setQuitOnLastWindowClosed(False)
     win = MainWindow(config)
     win.show()
     return app.exec()

@@ -63,6 +63,47 @@ jobs:
           "### Self-test`n``````json`n$(Get-Content $out -Raw)`n``````" >> $env:GITHUB_STEP_SUMMARY
           if ($p.ExitCode -ne 0) { throw "self-test failed with exit code $($p.ExitCode)" }
 
+      - name: Check exe icon
+        run: |
+          python -c "import pefile; pe = pefile.PE('dist/WinCam/WinCam.exe'); ids = [e.id for e in pe.DIRECTORY_ENTRY_RESOURCE.entries]; print('resource types:', ids); assert 14 in ids, 'no RT_GROUP_ICON in WinCam.exe'"
+
+      - name: UI smoke test (screenshots)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          pip install pillow --quiet
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          Add-Type @"
+          using System; using System.Runtime.InteropServices;
+          public static class W { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c); }
+          "@
+          function Shot($path) {
+            $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+            $bmp.Save($path); $g.Dispose(); $bmp.Dispose()
+          }
+          $p = Start-Process -FilePath "dist/WinCam/WinCam.exe" -PassThru
+          Start-Sleep -Seconds 10
+          $p.Refresh()
+          Write-Host "window: '$($p.MainWindowTitle)' handle=$($p.MainWindowHandle)"
+          $dir = Join-Path $env:RUNNER_TEMP "screens"; New-Item -ItemType Directory $dir | Out-Null
+          Shot "$dir/1-running.png"
+          [W]::ShowWindow($p.MainWindowHandle, 6) | Out-Null   # SW_MINIMIZE -> should show a notification
+          Start-Sleep -Seconds 3
+          Shot "$dir/2-minimized.png"
+          Stop-Process -Id $p.Id -Force
+          python tools/ci_screens.py "$dir/1-running.png" "$dir/2-minimized.png"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: screenshots
+          path: ${{ runner.temp }}/screens
+          if-no-files-found: ignore
+
       - name: Version
         id: ver
         shell: pwsh

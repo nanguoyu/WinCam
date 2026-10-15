@@ -66,6 +66,13 @@ def free_space(folder: str | os.PathLike) -> int | None:
         return None
 
 
+def format_bitrate(kbps: int) -> str:
+    """1500 -> '1.5 Mbps', 800 -> '800 kbps'."""
+    if kbps >= 1000:
+        return f"{kbps / 1000:g} Mbps"
+    return f"{kbps} kbps"
+
+
 def format_key(width: int, height: int, fps: float) -> str:
     return f"{width}x{height}@{fps:g}"
 

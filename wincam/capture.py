@@ -97,6 +97,43 @@ def auto_format(choices: list[FormatChoice]) -> FormatChoice | None:
     return max(choices, key=lambda c: (c.fps >= 14.5, c.width * c.height, c.fps))
 
 
+@dataclass(frozen=True)
+class Preset:
+    key: str
+    height: int
+    bitrate_kbps: int
+
+
+# Common recording presets. Anything else lives under "custom" in the settings dialog.
+PRESETS = [
+    Preset("480p", 480, 1500),
+    Preset("720p", 720, 4000),
+    Preset("1080p", 1080, 8000),
+]
+CUSTOM = "custom"
+DEFAULT_PRESET = "480p"
+
+
+def find_preset(key: str) -> Preset | None:
+    return next((p for p in PRESETS if p.key == key), None)
+
+
+def preset_format(choices: list[FormatChoice], height: int, fps_target: float = 30) -> FormatChoice | None:
+    """The camera format closest to a preset: same height if possible, smooth ~30 fps, then the wider one."""
+    if not choices:
+        return None
+
+    def score(c: FormatChoice):
+        smooth = 24.5 <= c.fps <= 31
+        return (c.height != height, abs(c.height - height), not smooth, abs(c.fps - fps_target), -c.width)
+
+    return min(choices, key=score)
+
+
+def estimate_mb_per_minute(video_kbps: int, audio_kbps: int = 128) -> float:
+    return (video_kbps + audio_kbps) * 60 / 8 / 1000
+
+
 def supported_containers() -> list[QMediaFormat.FileFormat]:
     video_capable = []
     for ff in QMediaFormat().supportedFileFormats(ENCODE):

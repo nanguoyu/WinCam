@@ -6,7 +6,17 @@ import math
 from functools import cache
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import (
+    QColor,
+    QIcon,
+    QImage,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QRadialGradient,
+)
 
 FG = QColor("#e8eaed")
 DISABLED = QColor("#6b6f76")
@@ -124,4 +134,62 @@ def icon(name: str) -> QIcon:
     for size in (16, 20, 24, 32, 48, 64):
         ic.addPixmap(_pixmap(name, size, FG), QIcon.Mode.Normal)
         ic.addPixmap(_pixmap(name, size, DISABLED), QIcon.Mode.Disabled)
+    return ic
+
+
+# --- application / tray icons -------------------------------------------------
+def render_app_icon(size: int, badge: str = "") -> QImage:
+    """The WinCam logo. ``badge`` = "rec" or "pause" draws a status dot (used for the tray icon)."""
+    img = QImage(size, size, QImage.Format.Format_ARGB32_Premultiplied)
+    img.fill(Qt.GlobalColor.transparent)
+    p = QPainter(img)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.scale(size / 256.0, size / 256.0)
+
+    bg = QLinearGradient(0, 0, 256, 256)
+    bg.setColorAt(0, QColor("#4f8cff"))
+    bg.setColorAt(1, QColor("#2a4fd6"))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(bg)
+    p.drawRoundedRect(QRectF(12, 12, 232, 232), 54, 54)
+
+    p.setBrush(QColor("#ffffff"))
+    p.drawEllipse(QPointF(128, 128), 76, 76)
+    p.setBrush(QColor("#1d2633"))
+    p.drawEllipse(QPointF(128, 128), 58, 58)
+    glass = QRadialGradient(QPointF(112, 110), 60)
+    glass.setColorAt(0, QColor("#4a6a9a"))
+    glass.setColorAt(1, QColor("#101722"))
+    p.setBrush(glass)
+    p.drawEllipse(QPointF(128, 128), 40, 40)
+    p.setBrush(QColor(255, 255, 255, 170))
+    p.drawEllipse(QPointF(112, 112), 11, 11)
+
+    if badge:
+        # Big, high-contrast status dot so it reads at 16 px in the notification area.
+        p.setBrush(QColor("#ffffff"))
+        p.drawEllipse(QPointF(186, 186), 70, 70)
+        if badge == "pause":
+            p.setBrush(QColor("#f5a524"))
+            p.drawEllipse(QPointF(186, 186), 58, 58)
+            p.setBrush(QColor("#ffffff"))
+            p.drawRoundedRect(QRectF(160, 158, 16, 56), 4, 4)
+            p.drawRoundedRect(QRectF(196, 158, 16, 56), 4, 4)
+        else:
+            p.setBrush(QColor("#e5484d"))
+            p.drawEllipse(QPointF(186, 186), 58, 58)
+    else:
+        p.setBrush(QColor("#ffffff"))
+        p.drawEllipse(QPointF(200, 56), 26, 26)
+        p.setBrush(QColor("#e5484d"))
+        p.drawEllipse(QPointF(200, 56), 19, 19)
+    p.end()
+    return img
+
+
+@cache
+def app_icon(badge: str = "") -> QIcon:
+    ic = QIcon()
+    for size in (16, 20, 24, 32, 40, 48, 64, 128, 256):
+        ic.addPixmap(QPixmap.fromImage(render_app_icon(size, badge)))
     return ic
